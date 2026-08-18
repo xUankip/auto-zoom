@@ -194,19 +194,55 @@ class SettingsSheet extends ConsumerWidget {
                   },
                 ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
+
+              // Test Notification Button
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final notifService = ref.read(notificationServiceProvider);
+                    await notifService.showTestNotification();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('Đang phát chuông báo thức thử nghiệm...'),
+                          duration: const Duration(seconds: 15),
+                          action: SnackBarAction(
+                            label: 'Tắt chuông',
+                            textColor: Colors.amber,
+                            onPressed: () {
+                              notifService.stopDirectAlarm();
+                            },
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.notifications_active_rounded),
+                  label: const Text('Thử phát chuông & thông báo'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
 
               // Manual Sync Now Button
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton.icon(
+                child: ElevatedButton.icon(
                   onPressed: () {
                     homeCtrl.syncCalendar();
                     Navigator.pop(context);
                   },
                   icon: const Icon(Icons.sync_rounded),
                   label: const Text('Đồng bộ ngay'),
-                  style: OutlinedButton.styleFrom(
+                  style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

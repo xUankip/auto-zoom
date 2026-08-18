@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../core/constants/app_constants.dart';
@@ -34,11 +35,18 @@ class NotificationService {
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    // 1. Initialize TimeZone data
+    // 1. Initialize TimeZone data with device local timezone
     try {
       tz_data.initializeTimeZones();
-      final localLocation = tz.local;
-      debugPrint('[NotificationService] Timezone initialized: ${localLocation.name}');
+      final tzInfo = await FlutterTimezone.getLocalTimezone()
+          .timeout(const Duration(seconds: 2));
+      final timeZoneName = tzInfo.identifier;
+      try {
+        tz.setLocalLocation(tz.getLocation(timeZoneName));
+        debugPrint('[NotificationService] Timezone initialized: $timeZoneName, local: ${tz.local.name}');
+      } catch (locErr) {
+        debugPrint('[NotificationService] Location $timeZoneName not found in tz database: $locErr');
+      }
     } catch (e) {
       debugPrint('[NotificationService] Timezone init warning: $e');
     }
@@ -76,6 +84,7 @@ class NotificationService {
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      requestCriticalPermission: false,
       notificationCategories: darwinNotificationCategories,
     );
 
@@ -122,6 +131,70 @@ class NotificationService {
     return true;
   }
 
+  static const _alarmChannel = MethodChannel('com.autozoom/alarm');
+
+  /// Plays alarm sound directly through speaker bypassing hardware silent switch
+  Future<void> playDirectAlarm() async {
+    try {
+      await _alarmChannel.invokeMethod('playAlarm');
+    } catch (e) {
+      debugPrint('[NotificationService] playDirectAlarm error: $e');
+    }
+  }
+
+  /// Stops direct alarm sound
+  Future<void> stopDirectAlarm() async {
+    try {
+      await _alarmChannel.invokeMethod('stopAlarm');
+    } catch (e) {
+      debugPrint('[NotificationService] stopDirectAlarm error: $e');
+    }
+  }
+
+  /// Triggers an immediate test notification with sound and banner for user verification.
+  Future<void> showTestNotification() async {
+    if (!_isInitialized) await initialize();
+    await requestPermissions();
+
+    // Trigger direct audio playback to bypass hardware Silent switch
+    await playDirectAlarm();
+
+    const androidDetails = AndroidNotificationDetails(
+      'autozoom_alarm_channel',
+      'Chuông báo nhắc giờ học Zoom',
+      channelDescription: 'Phát chuông báo thức khi sắp đến giờ vào lớp học Zoom',
+      importance: Importance.max,
+      priority: Priority.high,
+      sound: RawResourceAndroidNotificationSound('alarm'),
+      playSound: true,
+      enableVibration: true,
+      fullScreenIntent: true,
+    );
+
+    const darwinDetails = DarwinNotificationDetails(
+      categoryIdentifier: 'CLASS_REMINDER_CATEGORY',
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      presentBanner: true,
+      presentList: true,
+      sound: 'alarm.caf',
+      interruptionLevel: InterruptionLevel.timeSensitive,
+    );
+
+    const platformDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: darwinDetails,
+    );
+
+    await _notificationsPlugin.show(
+      999999,
+      '🔔 Kiểm tra thông báo AutoZoom',
+      'Thông báo và âm thanh chuông báo thức đã sẵn sàng!',
+      platformDetails,
+    );
+  }
+
   /// Reconciles currently scheduled notifications with the desired upcoming class schedule.
   Future<void> reconcile({
     required List<ClassSession> upcomingClasses,
@@ -150,13 +223,17 @@ class NotificationService {
         }
       }
 
-      // 3. Schedule all desired notifications
+      // 3. Schedule all desired notifications with alarm sound
       const androidDetails = AndroidNotificationDetails(
-        AppConstants.notificationChannelId,
-        AppConstants.notificationChannelName,
-        channelDescription: AppConstants.notificationChannelDesc,
+        'autozoom_alarm_channel',
+        'Chuông báo nhắc giờ học Zoom',
+        channelDescription: 'Phát chuông báo thức khi sắp đến giờ vào lớp học Zoom',
         importance: Importance.max,
         priority: Priority.high,
+        sound: RawResourceAndroidNotificationSound('alarm'),
+        playSound: true,
+        enableVibration: true,
+        fullScreenIntent: true,
         actions: [
           AndroidNotificationAction(
             AppConstants.actionJoin,
@@ -176,6 +253,10 @@ class NotificationService {
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
+        presentBanner: true,
+        presentList: true,
+        sound: 'alarm.caf',
+        interruptionLevel: InterruptionLevel.timeSensitive,
       );
 
       const platformDetails = NotificationDetails(
@@ -221,7 +302,7 @@ class NotificationService {
         }
 
         debugPrint(
-            '[NotificationService] Scheduled notification id ${item.id} for ${item.scheduledTime}');
+            '[NotificationService] Scheduled notification id ${item.id} for ${item.scheduledTime} (TZ: $tzScheduledTime)');
       }
     } catch (e) {
       debugPrint('[NotificationService] Reconcile error: $e');

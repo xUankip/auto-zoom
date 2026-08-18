@@ -112,15 +112,37 @@ class DeviceCalendarService implements CalendarService {
             '[DeviceCalendarService] Calendar "${cal.name}" (${cal.id}) returned ${rawEvents.length} events.');
 
         for (final event in rawEvents) {
-          final eventStart = event.start?.toLocal();
-          final eventEnd = event.end?.toLocal();
+          final rawStart = event.start;
+          final rawEnd = event.end;
 
-          debugPrint(
-              '  -> Event: "${event.title}", Start: $eventStart, End: $eventEnd, Location: "${event.location}", Desc: "${event.description}"');
-
-          if (event.eventId == null || eventStart == null || eventEnd == null) {
+          if (event.eventId == null || rawStart == null || rawEnd == null) {
             continue;
           }
+
+          // Ensure timezone conversion is purely in local device time
+          final startLocal = rawStart.isUtc ? rawStart.toLocal() : rawStart;
+          final endLocal = rawEnd.isUtc ? rawEnd.toLocal() : rawEnd;
+
+          final eventStart = DateTime(
+            startLocal.year,
+            startLocal.month,
+            startLocal.day,
+            startLocal.hour,
+            startLocal.minute,
+            startLocal.second,
+          );
+
+          final eventEnd = DateTime(
+            endLocal.year,
+            endLocal.month,
+            endLocal.day,
+            endLocal.hour,
+            endLocal.minute,
+            endLocal.second,
+          );
+
+          debugPrint(
+              '  -> Event: "${event.title}", Local Start: $eventStart, Local End: $eventEnd, Location: "${event.location}", Desc: "${event.description}"');
 
           // Parse Zoom credentials
           final zoom = ZoomParser.parse(

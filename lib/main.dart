@@ -8,7 +8,7 @@ import 'features/settings/settings_controller.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize SharedPreferences before running app
+  // Initialize SharedPreferences
   final sharedPreferences = await SharedPreferences.getInstance();
 
   runApp(
@@ -20,3 +20,5 @@ void main() async {
     ),
   );
 }
+
+
