@@ -18,62 +18,88 @@ class PtitSession {
 }
 
 // ---------------------------------------------------------------------------
-// PtitClass – a single subject slot from the API
+// PtitClass – one lesson slot from the API's ds_thoi_khoa_bieu
 // ---------------------------------------------------------------------------
 
 class PtitClass {
-  /// Subject code, e.g. "INT3301"
+  /// Subject code, e.g. "INT1154"
   final String subjectCode;
 
-  /// Subject name in Vietnamese
+  /// Subject name in Vietnamese, e.g. "Tin học cơ sở 1"
   final String subjectName;
 
-  /// Room / location
+  /// Room / location field (may contain Zoom info in old format)
   final String room;
 
   /// Lecturer name
   final String lecturer;
 
-  /// Date string from API, e.g. "12/08/2025"
-  final String dateStr;
+  /// ISO 8601 date string from API, e.g. "2026-09-21T00:00:00"
+  final String ngayHoc;
 
-  /// Start period (tiết bắt đầu, 1-based). Periods map to clock times.
+  /// Start period (tiết bắt đầu, 1-based).
   final int startPeriod;
 
-  /// End period (tiết kết thúc, 1-based).
-  final int endPeriod;
+  /// Number of periods (so_tiet).
+  final int soTiet;
 
-  /// Week number within the semester.
+  /// Computed end period.
+  int get endPeriod => startPeriod + soTiet - 1;
+
+  /// Week number within the semester (1-based).
   final int weekIndex;
+
+  /// Online meeting URL (link_hoc_online) – may be Zoom deep link.
+  final String? linkHocOnline;
+
+  /// Class name (ten_lop)
+  final String tenLop;
 
   const PtitClass({
     required this.subjectCode,
     required this.subjectName,
     required this.room,
     required this.lecturer,
-    required this.dateStr,
+    required this.ngayHoc,
     required this.startPeriod,
-    required this.endPeriod,
+    required this.soTiet,
     required this.weekIndex,
+    this.linkHocOnline,
+    this.tenLop = '',
   });
 
-  factory PtitClass.fromJson(Map<String, dynamic> json) {
-    // Field names observed from the PTIT JS bundle analysis:
-    // ma_mon, ten_mon, phong, giang_vien, ngay_hoc, tiet_bat_dau, so_tiet
+  factory PtitClass.fromJson(
+    Map<String, dynamic> json, {
+    int weekIndex = 0,
+    String weekStartDate = '',
+  }) {
     final startPeriod = _parseInt(json['tiet_bat_dau']);
-    final soTiet = _parseInt(json['so_tiet'] ?? json['so_tiet_hoc']);
-    final endPeriod = startPeriod + (soTiet > 0 ? soTiet - 1 : 0);
+    final soTiet = _parseInt(json['so_tiet'] ?? 1);
 
     return PtitClass(
-      subjectCode: _str(json['ma_mon'] ?? json['ma_mh'] ?? ''),
-      subjectName: _str(json['ten_mon'] ?? json['ten_mh'] ?? json['mon_hoc'] ?? ''),
-      room: _str(json['phong'] ?? json['phong_hoc'] ?? ''),
-      lecturer: _str(json['giang_vien'] ?? json['ten_gv'] ?? ''),
-      dateStr: _str(json['ngay_hoc'] ?? json['ngay'] ?? ''),
+      subjectCode: _str(json['ma_mon']),
+      subjectName: _str(json['ten_mon']),
+      room: _str(json['ma_phong']),
+      lecturer: _str(json['ten_giang_vien']),
+      ngayHoc: _str(json['ngay_hoc']),
       startPeriod: startPeriod,
-      endPeriod: endPeriod,
-      weekIndex: _parseInt(json['tuan'] ?? json['so_tuan'] ?? 0),
+      soTiet: soTiet > 0 ? soTiet : 1,
+      weekIndex: _parseInt(json['tuan_hoc_ky'] ?? weekIndex),
+      linkHocOnline: (json['link_hoc_online'] as String?)?.trim().isNotEmpty == true
+          ? (json['link_hoc_online'] as String).trim()
+          : null,
+      tenLop: _str(json['ten_lop']),
     );
+  }
+
+  /// Parse ngay_hoc to a DateTime. Handles ISO 8601 format from API.
+  DateTime? get date {
+    if (ngayHoc.isEmpty) return null;
+    try {
+      return DateTime.parse(ngayHoc);
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _str(dynamic v) => v?.toString().trim() ?? '';
@@ -82,14 +108,14 @@ class PtitClass {
 
   @override
   String toString() =>
-      'PtitClass($subjectCode, $dateStr, t$startPeriod-t$endPeriod, $room)';
+      'PtitClass($subjectCode, $ngayHoc, t$startPeriod, so_tiet=$soTiet)';
 }
 
 // ---------------------------------------------------------------------------
 // Period → Clock time mapping (PTIT standard)
 // ---------------------------------------------------------------------------
 
-/// Maps period number (1-based) to [hour, minute] of its START time.
+/// Start time [hour, minute] for each period.
 const Map<int, List<int>> kPtitPeriodStart = {
   1: [7, 0],
   2: [8, 0],
@@ -107,7 +133,7 @@ const Map<int, List<int>> kPtitPeriodStart = {
   14: [20, 30],
 };
 
-/// Maps period number (1-based) to [hour, minute] of its END time.
+/// End time [hour, minute] for each period.
 const Map<int, List<int>> kPtitPeriodEnd = {
   1: [7, 50],
   2: [8, 50],

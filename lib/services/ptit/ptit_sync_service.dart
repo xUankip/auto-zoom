@@ -5,19 +5,16 @@ import '../calendar/calendar_service.dart';
 import 'ptit_api_client.dart';
 import 'ptit_calendar_writer.dart';
 import 'ptit_credential_store.dart';
-import 'ptit_models.dart';
 
 /// Orchestrates the full PTIT → Device Calendar sync.
 ///
 /// Flow:
-///   1. Load credentials from secure store (or accept them directly)
-///   2. Login → get JWT session
-///   3. Scan semester weeks until _emptyWeekStop consecutive empties
-///   4. Write all classes to the target device calendar
+///   1. Load or accept credentials
+///   2. OAuth2 login → JWT session
+///   3. Fetch current semester code
+///   4. Fetch full semester TKB in one API call
+///   5. Write all classes to device calendar
 class PtitSyncService {
-  static const _maxWeeks = 30;
-  static const _emptyWeekStop = 3;
-
   final PtitApiClient _apiClient;
   final PtitCalendarWriter _calendarWriter;
   final PtitCredentialStore _credentialStore;
@@ -37,9 +34,9 @@ class PtitSyncService {
   // Public API
   // ---------------------------------------------------------------------------
 
-  /// Run a full sync. [onProgress] receives human-readable status + 0..1 progress.
+  /// Run a full sync. [onProgress] receives human-readable status + 0..1 value.
   ///
-  /// Returns the count of events written. Throws [PtitAuthException] on login failure.
+  /// Returns count of events written. Throws [PtitAuthException] on login failure.
   Future<int> sync({
     required String targetCalendarId,
     required void Function(String message, double progress) onProgress,
@@ -60,58 +57,37 @@ class PtitSyncService {
       pass = saved.password;
     }
 
+    // Step 1: Login
     onProgress('Đang đăng nhập vào hệ thống PTIT…', 0.05);
     final session = await _apiClient.login(username: user, password: pass);
 
-    // Persist on success
+    // Persist credentials on success
     await _credentialStore.save(username: user, password: pass);
+    debugPrint('[PtitSyncService] Logged in: ${session.studentCode} (${session.studentName})');
+    onProgress('Đăng nhập thành công: ${session.studentName}', 0.15);
 
-    debugPrint('[PtitSyncService] Logged in as ${session.studentCode}');
-    onProgress('Đăng nhập thành công: ${session.studentName}', 0.10);
+    // Step 2: Get current semester
+    onProgress('Đang xác định học kỳ hiện tại…', 0.20);
+    final hocKy = await _apiClient.fetchCurrentSemester(session);
+    debugPrint('[PtitSyncService] Current semester: $hocKy');
+    onProgress('Học kỳ $hocKy – đang tải toàn bộ thời khóa biểu…', 0.30);
 
-    // Scan weeks
-    final List<PtitClass> allClasses = [];
-    int emptyStreak = 0;
+    // Step 3: Fetch full semester TKB
+    final allClasses = await _apiClient.fetchSemesterTkb(
+      session: session,
+      hocKy: hocKy,
+    );
 
-    for (int week = 1; week <= _maxWeeks; week++) {
-      try {
-        final weekClasses = await _apiClient.fetchWeek(
-          session: session,
-          weekIndex: week,
-        );
-
-        if (weekClasses.isEmpty) {
-          emptyStreak++;
-          debugPrint(
-            '[PtitSyncService] Week $week: empty (streak=$emptyStreak)',
-          );
-          if (emptyStreak >= _emptyWeekStop) break;
-        } else {
-          emptyStreak = 0;
-          allClasses.addAll(weekClasses);
-          debugPrint('[PtitSyncService] Week $week: ${weekClasses.length} classes');
-        }
-
-        final progress = 0.10 + (week / _maxWeeks) * 0.65;
-        onProgress(
-          'Tuần $week: ${weekClasses.isEmpty ? "trống" : "${weekClasses.length} tiết"}',
-          progress.clamp(0.0, 0.75),
-        );
-      } catch (e) {
-        debugPrint('[PtitSyncService] Error on week $week: $e');
-        // Non-fatal – continue scanning
-      }
-    }
-
-    debugPrint('[PtitSyncService] Total: ${allClasses.length} classes to write');
+    debugPrint('[PtitSyncService] Fetched ${allClasses.length} lessons');
 
     if (allClasses.isEmpty) {
-      onProgress('Không tìm thấy lịch học nào trong học kỳ.', 1.0);
+      onProgress('Không tìm thấy buổi học nào trong học kỳ $hocKy.', 1.0);
       return 0;
     }
 
-    onProgress('Đang ghi ${allClasses.length} buổi học vào lịch…', 0.80);
+    onProgress('Đang ghi ${allClasses.length} buổi học vào lịch…', 0.70);
 
+    // Step 4: Write to device calendar
     final written = await _calendarWriter.writeAll(
       calendarId: targetCalendarId,
       classes: allClasses,

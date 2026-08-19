@@ -8,13 +8,18 @@ import 'ptit_models.dart';
 
 /// HTTP client for the PTIT student portal (qldttx.pttc1.edu.vn).
 ///
-/// Auth flow mirrors the Angular SPA:
-///   POST /api/auth/login → receives JWT access_token
-///   GET  sch/w-locdstkbtuanusertheohocky?... → returns weekly timetable JSON
+/// Auth flow:
+///   POST /api/auth/login  (form-encoded, grant_type=password)
+///         → JWT access_token
+///   POST /api/sch/w-locdshockytkbuser
+///         → current semester code (hoc_ky e.g. 20261)
+///   POST /api/sch/w-locdstkbtuanusertheohocky
+///         → all weeks of semester in one call
 class PtitApiClient {
   static const _baseUrl = 'https://qldttx.pttc1.edu.vn';
   static const _loginPath = '/api/auth/login';
-  static const _tkbPath = '/sch/w-locdstkbtuanusertheohocky';
+  static const _semesterPath = '/api/sch/w-locdshockytkbuser';
+  static const _tkbPath = '/api/sch/w-locdstkbtuanusertheohocky';
 
   final http.Client _http;
 
@@ -24,7 +29,7 @@ class PtitApiClient {
   // Authentication
   // ---------------------------------------------------------------------------
 
-  /// Login with username & password. Returns a [PtitSession] with JWT token.
+  /// OAuth2 Password Flow – must be form-encoded, NOT JSON.
   Future<PtitSession> login({
     required String username,
     required String password,
@@ -32,35 +37,38 @@ class PtitApiClient {
     final uri = Uri.parse('$_baseUrl$_loginPath');
 
     final headers = {
-      HttpHeaders.contentTypeHeader: 'application/json',
+      HttpHeaders.contentTypeHeader: 'application/x-www-form-urlencoded',
       HttpHeaders.acceptHeader: 'application/json, text/plain, */*',
       'Origin': _baseUrl,
       'Referer': '$_baseUrl/',
     };
 
-    final body = jsonEncode({'username': username, 'password': password});
+    final body = {
+      'grant_type': 'password',
+      'username': username,
+      'password': password,
+    };
 
-    debugPrint('[PtitApiClient] POST $uri');
+    debugPrint('[PtitApiClient] POST $uri (OAuth2 form-encoded)');
     final response = await _http.post(uri, headers: headers, body: body);
 
     if (response.statusCode != 200) {
       throw PtitAuthException(
-        'Login failed (${response.statusCode}): ${response.body}',
+        'Đăng nhập thất bại (${response.statusCode}): ${response.body}',
       );
     }
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-    final token = data['access_token'] as String? ?? data['token'] as String?;
+    final token = data['access_token'] as String?;
     if (token == null || token.isEmpty) {
-      throw PtitAuthException('No access_token in login response.');
+      throw const PtitAuthException('Không tìm thấy access_token trong phản hồi.');
     }
 
-    final user = data['data'] as Map<String, dynamic>? ?? data;
+    // Response uses "userName" (capital N) and "name"
     final studentCode =
-        user['username'] as String? ?? user['mssv'] as String? ?? username;
-    final studentName =
-        user['name'] as String? ?? user['ho_ten'] as String? ?? '';
+        data['userName'] as String? ?? data['username'] as String? ?? username;
+    final studentName = data['name'] as String? ?? '';
 
     return PtitSession(
       accessToken: token,
@@ -70,61 +78,112 @@ class PtitApiClient {
   }
 
   // ---------------------------------------------------------------------------
+  // Semester
+  // ---------------------------------------------------------------------------
+
+  /// Returns the current semester code (e.g. 20261 = Year 2026, Semester 1).
+  Future<int> fetchCurrentSemester(PtitSession session) async {
+    final uri = Uri.parse('$_baseUrl$_semesterPath');
+    final headers = _authHeaders(session);
+
+    debugPrint('[PtitApiClient] POST $uri (semester list)');
+    final response = await _http.post(uri, headers: headers, body: '{}');
+
+    if (response.statusCode != 200) {
+      throw PtitApiException('Lỗi lấy học kỳ: HTTP ${response.statusCode}');
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = json['data'] as Map<String, dynamic>?;
+
+    // hoc_ky_theo_ngay_hien_tai is the currently active semester
+    final current = data?['hoc_ky_theo_ngay_hien_tai'] as int?;
+    if (current != null && current > 0) return current;
+
+    // Fall back to the first ds_hoc_ky entry
+    final list = data?['ds_hoc_ky'] as List<dynamic>?;
+    if (list != null && list.isNotEmpty) {
+      final first = list.first as Map<String, dynamic>;
+      return (first['hoc_ky'] as int?) ?? 0;
+    }
+
+    throw const PtitApiException('Không xác định được học kỳ hiện tại.');
+  }
+
+  // ---------------------------------------------------------------------------
   // Timetable
   // ---------------------------------------------------------------------------
 
-  /// Fetch [PtitClass] list for a specific [weekIndex] (1-based).
-  Future<List<PtitClass>> fetchWeek({
+  /// Fetch the ENTIRE semester timetable in a single call.
+  ///
+  /// Returns flat list of [PtitClass] across all weeks.
+  Future<List<PtitClass>> fetchSemesterTkb({
     required PtitSession session,
-    required int weekIndex,
+    required int hocKy,
   }) async {
-    final uri = Uri.parse('$_baseUrl$_tkbPath').replace(queryParameters: {
-      'filter[hoc_ky]': '',
-      'filter[ten_hoc_ky]': '',
-      'filter[tu_tuan]': weekIndex.toString(),
-      'filter[den_tuan]': weekIndex.toString(),
-      'page': '1',
-      'rpp': '100',
+    final uri = Uri.parse('$_baseUrl$_tkbPath');
+    final headers = _authHeaders(session);
+
+    // Fetch all weeks (1-30) in one call – API returns only present weeks
+    final payload = jsonEncode({
+      'filter': {
+        'hoc_ky': hocKy,
+        'tu_tuan': 1,
+        'den_tuan': 30,
+      },
+      'paginator': {'page': 1, 'limit': 200},
     });
 
-    final headers = {
-      HttpHeaders.authorizationHeader: 'Bearer ${session.accessToken}',
-      HttpHeaders.acceptHeader: 'application/json, text/plain, */*',
-      'Origin': _baseUrl,
-      'Referer': '$_baseUrl/',
-    };
-
-    debugPrint('[PtitApiClient] GET $uri');
-    final response = await _http.get(uri, headers: headers);
+    debugPrint('[PtitApiClient] POST $uri (full semester hoc_ky=$hocKy)');
+    final response = await _http.post(uri, headers: headers, body: payload);
 
     if (response.statusCode == 401) {
-      throw PtitAuthException('Token expired or invalid (401).');
+      throw const PtitAuthException('Token hết hạn (401).');
     }
     if (response.statusCode != 200) {
-      throw PtitApiException(
-        'TKB fetch failed (week $weekIndex): HTTP ${response.statusCode}',
-      );
+      throw PtitApiException('Lỗi lấy TKB: HTTP ${response.statusCode}');
     }
 
-    return _parseClasses(response.body, weekIndex);
+    return _parseResponse(response.body);
   }
 
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
 
-  List<PtitClass> _parseClasses(String body, int weekIndex) {
+  Map<String, String> _authHeaders(PtitSession session) => {
+        HttpHeaders.authorizationHeader: 'Bearer ${session.accessToken}',
+        HttpHeaders.contentTypeHeader: 'application/json',
+        HttpHeaders.acceptHeader: 'application/json, text/plain, */*',
+        'Origin': _baseUrl,
+        'Referer': '$_baseUrl/',
+      };
+
+  List<PtitClass> _parseResponse(String body) {
     try {
       final json = jsonDecode(body) as Map<String, dynamic>;
       final data = json['data'] as Map<String, dynamic>?;
-      final rawList = data?['ds_tiet_trong_tuan'] as List<dynamic>?;
-      if (rawList == null || rawList.isEmpty) return [];
-      return rawList
-          .whereType<Map<String, dynamic>>()
-          .map((e) => PtitClass.fromJson(e))
-          .toList();
+      final dsTuan = data?['ds_tuan_tkb'] as List<dynamic>?;
+      if (dsTuan == null) return [];
+
+      final result = <PtitClass>[];
+      for (final tuanRaw in dsTuan) {
+        final tuan = tuanRaw as Map<String, dynamic>;
+        final weekIndex = tuan['tuan_hoc_ky'] as int? ?? 0;
+        final ngayBatDau = tuan['ngay_bat_dau'] as String? ?? '';
+        final dsTkb = tuan['ds_thoi_khoa_bieu'] as List<dynamic>? ?? [];
+
+        for (final tkbRaw in dsTkb) {
+          final tkb = tkbRaw as Map<String, dynamic>;
+          // Skip cancelled lessons
+          if (tkb['is_nghi_day'] == true) continue;
+
+          result.add(PtitClass.fromJson(tkb, weekIndex: weekIndex, weekStartDate: ngayBatDau));
+        }
+      }
+      return result;
     } catch (e) {
-      debugPrint('[PtitApiClient] Parse error on week $weekIndex: $e');
+      debugPrint('[PtitApiClient] Parse error: $e');
       return [];
     }
   }

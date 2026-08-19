@@ -5,9 +5,6 @@ import 'package:timezone/timezone.dart' as tz;
 import 'ptit_models.dart';
 
 /// Creates / updates calendar events on the device from a list of [PtitClass].
-///
-/// Strategy: idempotent write – uses a stable title hash so re-running sync
-/// doesn't duplicate events. Events are created in the user's selected calendar.
 class PtitCalendarWriter {
   final DeviceCalendarPlugin _plugin;
 
@@ -15,7 +12,6 @@ class PtitCalendarWriter {
       : _plugin = plugin ?? DeviceCalendarPlugin();
 
   /// Writes [classes] into [calendarId].
-  ///
   /// Returns the number of events successfully created/updated.
   Future<int> writeAll({
     required String calendarId,
@@ -27,21 +23,21 @@ class PtitCalendarWriter {
       try {
         final event = _buildEvent(calendarId, cls);
         if (event == null) {
-          debugPrint('[PtitCalendarWriter] Skipping (bad date): $cls');
+          debugPrint('[PtitCalendarWriter] Skipping (bad date/period): $cls');
           continue;
         }
         final result = await _plugin.createOrUpdateEvent(event);
         if (result?.isSuccess == true) {
           count++;
-          debugPrint('[PtitCalendarWriter] Wrote: ${cls.subjectName} ${cls.dateStr}');
+          debugPrint('[PtitCalendarWriter] ✅ ${cls.subjectName} ${cls.ngayHoc}');
         } else {
           debugPrint(
-            '[PtitCalendarWriter] Failed: ${cls.subjectName} '
+            '[PtitCalendarWriter] ❌ ${cls.subjectName}: '
             '${result?.errors.map((e) => e.errorMessage).join(", ")}',
           );
         }
       } catch (e) {
-        debugPrint('[PtitCalendarWriter] Error writing $cls: $e');
+        debugPrint('[PtitCalendarWriter] Error: $e');
       }
     }
 
@@ -53,7 +49,7 @@ class PtitCalendarWriter {
   // ---------------------------------------------------------------------------
 
   Event? _buildEvent(String calendarId, PtitClass cls) {
-    final date = _parseDate(cls.dateStr);
+    final date = cls.date;
     if (date == null) return null;
 
     final startTimes = kPtitPeriodStart[cls.startPeriod];
@@ -73,37 +69,25 @@ class PtitCalendarWriter {
       endTimes[0], endTimes[1],
     );
 
-    final event = Event(calendarId)
+    return Event(calendarId)
       ..title = cls.subjectName.isNotEmpty ? cls.subjectName : cls.subjectCode
       ..location = cls.room
       ..description = _buildDescription(cls)
       ..start = startDt
       ..end = endDt;
-
-    return event;
   }
 
   String _buildDescription(PtitClass cls) {
     final parts = <String>[];
     if (cls.subjectCode.isNotEmpty) parts.add('Mã môn: ${cls.subjectCode}');
+    if (cls.tenLop.isNotEmpty) parts.add('Lớp: ${cls.tenLop}');
     if (cls.lecturer.isNotEmpty) parts.add('GV: ${cls.lecturer}');
     if (cls.room.isNotEmpty) parts.add('Phòng: ${cls.room}');
-    parts.add('Tiết: ${cls.startPeriod} - ${cls.endPeriod}');
-    return parts.join('\n');
-  }
-
-  /// Parses "dd/MM/yyyy" format used by PTIT API.
-  DateTime? _parseDate(String raw) {
-    if (raw.isEmpty) return null;
-    try {
-      final parts = raw.split('/');
-      if (parts.length != 3) return null;
-      final day = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      final year = int.parse(parts[2]);
-      return DateTime(year, month, day);
-    } catch (_) {
-      return null;
+    parts.add('Tiết ${cls.startPeriod} - ${cls.endPeriod}');
+    // Include zoom link in description so AutoZoom parser can find it
+    if (cls.linkHocOnline != null) {
+      parts.add('Zoom: ${cls.linkHocOnline}');
     }
+    return parts.join('\n');
   }
 }
