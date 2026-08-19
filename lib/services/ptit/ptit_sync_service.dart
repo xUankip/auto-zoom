@@ -61,18 +61,16 @@ class PtitSyncService {
     onProgress('Đang đăng nhập vào hệ thống PTIT…', 0.05);
     final session = await _apiClient.login(username: user, password: pass);
 
-    // Persist credentials on success
     await _credentialStore.save(username: user, password: pass);
     debugPrint('[PtitSyncService] Logged in: ${session.studentCode} (${session.studentName})');
-    onProgress('Đăng nhập thành công: ${session.studentName}', 0.15);
+    onProgress('Xin chào ${session.studentName}! Đang xác định học kỳ…', 0.15);
 
     // Step 2: Get current semester
-    onProgress('Đang xác định học kỳ hiện tại…', 0.20);
     final hocKy = await _apiClient.fetchCurrentSemester(session);
     debugPrint('[PtitSyncService] Current semester: $hocKy');
-    onProgress('Học kỳ $hocKy – đang tải toàn bộ thời khóa biểu…', 0.30);
+    onProgress('Học kỳ $hocKy – đang tải toàn bộ thời khóa biểu…', 0.25);
 
-    // Step 3: Fetch full semester TKB
+    // Step 3: Fetch full semester TKB in ONE call
     final allClasses = await _apiClient.fetchSemesterTkb(
       session: session,
       hocKy: hocKy,
@@ -85,9 +83,20 @@ class PtitSyncService {
       return 0;
     }
 
+    // Step 4: Delete stale events from previous syncs in this calendar
+    // (covers the semester date range so wrong-date events are cleaned up)
+    if (allClasses.isNotEmpty) {
+      onProgress('Đang xóa lịch cũ trước khi ghi lại…', 0.55);
+      await _deleteSemesterEvents(
+        calendarId: targetCalendarId,
+        from: allClasses.first.date!,
+        to: allClasses.last.date!.add(const Duration(days: 1)),
+      );
+    }
+
     onProgress('Đang ghi ${allClasses.length} buổi học vào lịch…', 0.70);
 
-    // Step 4: Write to device calendar
+    // Step 5: Write to device calendar
     final written = await _calendarWriter.writeAll(
       calendarId: targetCalendarId,
       classes: allClasses,
@@ -100,6 +109,30 @@ class PtitSyncService {
 
     return written;
   }
+
+  /// Deletes all events in [calendarId] between [from] and [to].
+  Future<void> _deleteSemesterEvents({
+    required String calendarId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    try {
+      final params = RetrieveEventsParams(startDate: from, endDate: to);
+      final result = await _calendarPlugin.retrieveEvents(calendarId, params);
+      if (!result.isSuccess || result.data == null) return;
+
+      for (final event in result.data!) {
+        if (event.eventId != null) {
+          await _calendarPlugin.deleteEvent(calendarId, event.eventId!);
+          debugPrint('[PtitSyncService] Deleted old event: ${event.title}');
+        }
+      }
+    } catch (e) {
+      debugPrint('[PtitSyncService] Cleanup error: $e');
+      // Non-fatal – continue with write even if cleanup fails
+    }
+  }
+
 
   // ---------------------------------------------------------------------------
   // Calendar helpers for UI
