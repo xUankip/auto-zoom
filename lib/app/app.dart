@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/alarm/alarm_ring_screen.dart';
 import '../features/home/home_controller.dart';
 import '../features/home/home_screen.dart';
+import '../services/alarm/alarm_service.dart';
 import 'app_theme.dart';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 class AutoZoomApp extends ConsumerStatefulWidget {
   const AutoZoomApp({super.key});
@@ -18,6 +22,14 @@ class _AutoZoomAppState extends ConsumerState<AutoZoomApp> {
   @override
   void initState() {
     super.initState();
+    // Register alarm ring listener
+    AlarmService().onAlarmRing = (alarmSettings) {
+      final navContext = appNavigatorKey.currentContext;
+      if (navContext != null) {
+        AlarmRingDialog.show(navContext, alarmSettings);
+      }
+    };
+
     // Reconcile notifications whenever the app returns to foreground
     _lifecycleListener = AppLifecycleListener(
       onResume: () {
@@ -36,6 +48,7 @@ class _AutoZoomAppState extends ConsumerState<AutoZoomApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'AutoZoom',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
@@ -45,3 +58,4 @@ class _AutoZoomAppState extends ConsumerState<AutoZoomApp> {
     );
   }
 }
+

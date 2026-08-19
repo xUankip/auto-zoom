@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../home/home_controller.dart';
+import '../ptit_sync/ptit_sync_screen.dart';
 import 'settings_controller.dart';
 
 class SettingsSheet extends ConsumerWidget {
@@ -243,6 +244,34 @@ class SettingsSheet extends ConsumerWidget {
                   icon: const Icon(Icons.sync_rounded),
                   label: const Text('Đồng bộ ngay'),
                   style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 4),
+
+              // PTIT Auto-sync TKB
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const PtitSyncScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.school_rounded),
+                  label: const Text('Đồng bộ TKB từ PTIT'),
+                  style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

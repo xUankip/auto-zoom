@@ -9,6 +9,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../../core/constants/app_constants.dart';
 import '../../core/models/class_session.dart';
 import '../../core/models/zoom_meeting.dart';
+import '../alarm/alarm_service.dart';
 import '../meetings/meeting_launcher.dart';
 import '../meetings/zoom_launcher.dart';
 import 'notification_reconciler.dart';
@@ -20,6 +21,7 @@ typedef OnNotificationMeetingLaunch = void Function(ZoomMeeting meeting);
 class NotificationService {
   final FlutterLocalNotificationsPlugin _notificationsPlugin;
   final MeetingLauncher _meetingLauncher;
+  final AlarmService _alarmService;
   bool _isInitialized = false;
 
   OnNotificationMeetingLaunch? onMeetingLaunch;
@@ -27,13 +29,18 @@ class NotificationService {
   NotificationService({
     FlutterLocalNotificationsPlugin? notificationsPlugin,
     MeetingLauncher? meetingLauncher,
+    AlarmService? alarmService,
   })  : _notificationsPlugin =
             notificationsPlugin ?? FlutterLocalNotificationsPlugin(),
-        _meetingLauncher = meetingLauncher ?? const ZoomLauncher();
+        _meetingLauncher = meetingLauncher ?? const ZoomLauncher(),
+        _alarmService = alarmService ?? AlarmService();
 
   /// Initializes timezone database and notification plugin settings for iOS & Android.
   Future<void> initialize() async {
     if (_isInitialized) return;
+
+    // 0. Initialize Alarm audio engine
+    await _alarmService.initialize();
 
     // 1. Initialize TimeZone data with device local timezone
     try {
@@ -149,15 +156,13 @@ class NotificationService {
     } catch (e) {
       debugPrint('[NotificationService] stopDirectAlarm error: $e');
     }
-  }
-
-  /// Triggers an immediate test notification with sound and banner for user verification.
+  }  /// Triggers an immediate test notification with sound and banner for user verification.
   Future<void> showTestNotification() async {
     if (!_isInitialized) await initialize();
     await requestPermissions();
 
-    // Trigger direct audio playback to bypass hardware Silent switch
-    await playDirectAlarm();
+    // Trigger test alarm bypassing hardware Silent switch
+    await _alarmService.triggerTestAlarm();
 
     const androidDetails = AndroidNotificationDetails(
       'autozoom_alarm_channel',
@@ -304,6 +309,9 @@ class NotificationService {
         debugPrint(
             '[NotificationService] Scheduled notification id ${item.id} for ${item.scheduledTime} (TZ: $tzScheduledTime)');
       }
+
+      // 4. Synchronize hardware-silent-bypassing background audio alarms
+      await _alarmService.reconcileAlarms(desiredItems: desiredItems);
     } catch (e) {
       debugPrint('[NotificationService] Reconcile error: $e');
     }
@@ -313,6 +321,14 @@ class NotificationService {
   void _handleNotificationResponse(NotificationResponse response) {
     final actionId = response.actionId;
     final payload = response.payload;
+    final notificationId = response.id;
+
+    // Stop ringing alarm if user interacts with notification
+    if (notificationId != null) {
+      _alarmService.stopAlarm(notificationId);
+    } else {
+      _alarmService.stopAll();
+    }
 
     if (actionId == AppConstants.actionDismiss) {
       debugPrint('[NotificationService] User dismissed notification.');
@@ -347,6 +363,13 @@ class NotificationService {
 /// Top-level background notification tap handler required by flutter_local_notifications.
 @pragma('vm:entry-point')
 void notificationTapBackgroundHandler(NotificationResponse response) {
+  // Stop ringing alarm
+  if (response.id != null) {
+    AlarmService().stopAlarm(response.id!);
+  } else {
+    AlarmService().stopAll();
+  }
+
   final payload = response.payload;
   if (payload != null && payload.isNotEmpty) {
     try {
