@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/models/class_session.dart';
 import '../../services/calendar/calendar_service.dart';
 import '../../services/calendar/device_calendar_service.dart';
@@ -29,6 +30,7 @@ class HomeState {
   final List<CalendarAccount> availableCalendars;
   final String? errorMessage;
   final DateTime? lastSyncedAt;
+  final int filterDays;
 
   const HomeState({
     this.isLoading = false,
@@ -37,6 +39,7 @@ class HomeState {
     this.availableCalendars = const [],
     this.errorMessage,
     this.lastSyncedAt,
+    this.filterDays = AppConstants.defaultFilterDays,
   });
 
   HomeState copyWith({
@@ -46,6 +49,7 @@ class HomeState {
     List<CalendarAccount>? availableCalendars,
     String? errorMessage,
     DateTime? lastSyncedAt,
+    int? filterDays,
   }) {
     return HomeState(
       isLoading: isLoading ?? this.isLoading,
@@ -55,6 +59,7 @@ class HomeState {
       availableCalendars: availableCalendars ?? this.availableCalendars,
       errorMessage: errorMessage,
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+      filterDays: filterDays ?? this.filterDays,
     );
   }
 
@@ -110,6 +115,12 @@ class HomeController extends StateNotifier<HomeState> {
   }
 
   Future<void> initAndSync() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    final savedFilterDays =
+        prefs.getInt(AppConstants.keyFilterDays) ?? AppConstants.defaultFilterDays;
+    if (mounted) {
+      state = state.copyWith(filterDays: savedFilterDays);
+    }
     await notificationService.initialize();
     if (!mounted) return;
     await syncCalendar();
@@ -147,8 +158,14 @@ class HomeController extends StateNotifier<HomeState> {
         await settingsController.selectAllCalendars(selectedIds.toList());
       }
 
+      final now = DateTime.now();
+      final queryStart = DateTime(now.year, now.month, now.day);
+      final queryEnd = queryStart.add(Duration(days: state.filterDays));
+
       final upcomingClasses = await calendarService.getUpcomingClasses(
         selectedCalendarIds: selectedIds,
+        startTime: queryStart,
+        endTime: queryEnd,
       );
       if (!mounted) return;
 
@@ -168,7 +185,7 @@ class HomeController extends StateNotifier<HomeState> {
       );
 
       debugPrint(
-          '[HomeController] Synced ${upcomingClasses.length} Zoom classes successfully.');
+          '[HomeController] Synced ${upcomingClasses.length} Zoom classes successfully (${state.filterDays} days window).');
     } catch (e) {
       debugPrint('[HomeController] Sync error: $e');
       if (!mounted) return;
@@ -177,6 +194,15 @@ class HomeController extends StateNotifier<HomeState> {
         errorMessage: 'Không thể đồng bộ lịch: $e',
       );
     }
+  }
+
+  /// Changes the active schedule filter range (e.g. 7, 15, 30 days) and re-syncs.
+  Future<void> setFilterDays(int days) async {
+    if (state.filterDays == days) return;
+    state = state.copyWith(filterDays: days);
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.setInt(AppConstants.keyFilterDays, days);
+    await syncCalendar();
   }
 
   /// Request permissions from OS.

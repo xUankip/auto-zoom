@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 class EmptyScheduleView extends StatelessWidget {
   final VoidCallback onRefresh;
+  final int filterDays;
 
   const EmptyScheduleView({
     super.key,
     required this.onRefresh,
+    this.filterDays = 7,
   });
 
   @override
@@ -42,7 +44,7 @@ class EmptyScheduleView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Các sự kiện có Zoom URL hoặc Meeting ID trong 7 ngày tới sẽ tự động xuất hiện tại đây.',
+              'Các sự kiện có Zoom URL hoặc Meeting ID trong $filterDays ngày tới sẽ tự động xuất hiện tại đây.',
               style: TextStyle(
                 fontSize: 13,
                 color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),

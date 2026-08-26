@@ -141,5 +141,66 @@ void main() {
     expect(find.text('AutoZoom'), findsOneWidget);
     expect(find.text('Cơ sở dữ liệu nâng cao'), findsOneWidget);
     expect(find.text('HÔM NAY'), findsOneWidget);
+    expect(find.text('7 ngày'), findsOneWidget);
+    expect(find.text('15 ngày'), findsOneWidget);
+    expect(find.text('30 ngày'), findsOneWidget);
+  });
+
+  testWidgets('HomeScreen filter bar allows switching 7, 15, 30 days and updates header',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    final now = DateTime.now();
+    final mockClasses = [
+      ClassSession(
+        id: 'session_future',
+        calendarId: 'cal_1',
+        calendarName: 'School',
+        title: 'Mạng máy tính',
+        startTime: now.add(const Duration(days: 10)),
+        endTime: now.add(const Duration(days: 10, hours: 2)),
+        zoom: const ZoomMeeting(meetingId: '1122334455'),
+      ),
+    ];
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          calendarServiceProvider.overrideWithValue(
+            MockCalendarService(
+              mockClasses: mockClasses,
+              mockCalendars: [
+                const CalendarAccount(id: 'cal_1', name: 'School'),
+              ],
+            ),
+          ),
+          notificationServiceProvider.overrideWithValue(
+            MockNotificationService(),
+          ),
+        ],
+        child: const AutoZoomApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Initially 7 days filter is active, header shows "7 NGÀY TỚI"
+    expect(find.text('7 NGÀY TỚI'), findsOneWidget);
+
+    // Switch to 15 days
+    await tester.tap(find.text('15 ngày'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('15 NGÀY TỚI'), findsOneWidget);
+    expect(prefs.getInt('dashboard_filter_days'), 15);
+
+    // Switch to 30 days
+    await tester.tap(find.text('30 ngày'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('30 NGÀY TỚI'), findsOneWidget);
+    expect(prefs.getInt('dashboard_filter_days'), 30);
   });
 }

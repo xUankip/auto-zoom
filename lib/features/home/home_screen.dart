@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../settings/settings_sheet.dart';
 import 'home_controller.dart';
 import 'widgets/class_session_card.dart';
@@ -72,6 +73,76 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildFilterBar(
+    BuildContext context,
+    HomeState state,
+    HomeController ctrl,
+  ) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: AppConstants.scheduleFilterDaysOptions.map((days) {
+          final isSelected = state.filterDays == days;
+          return Expanded(
+            child: GestureDetector(
+              key: ValueKey('filter_days_$days'),
+              onTap: () => ctrl.setFilterDays(days),
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isDark ? const Color(0xFF0284C7) : Colors.white)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: isDark ? 0.3 : 0.08,
+                            ),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    '$days ngày',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          isSelected ? FontWeight.bold : FontWeight.w500,
+                      color: isSelected
+                          ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                          : (isDark
+                              ? const Color(0xFF94A3B8)
+                              : const Color(0xFF64748B)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _buildBody(
     BuildContext context,
     WidgetRef ref,
@@ -95,17 +166,6 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
-    if (state.classes.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          EmptyScheduleView(
-            onRefresh: () => ctrl.syncCalendar(),
-          ),
-        ],
-      );
-    }
-
     final todayClasses = state.todayClasses;
     final upcomingClasses = state.upcomingDaysClasses;
 
@@ -113,6 +173,9 @@ class HomeScreen extends ConsumerWidget {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       children: [
+        // Filter selector bar
+        _buildFilterBar(context, state, ctrl),
+
         if (state.errorMessage != null)
           Container(
             margin: const EdgeInsets.only(bottom: 12),
@@ -128,49 +191,56 @@ class HomeScreen extends ConsumerWidget {
             ),
           ),
 
-        // Section: Today
-        if (todayClasses.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.only(left: 4, bottom: 8),
-            child: Text(
-              'HÔM NAY',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
-                color: Color(0xFF0284C7),
+        if (state.classes.isEmpty)
+          EmptyScheduleView(
+            filterDays: state.filterDays,
+            onRefresh: () => ctrl.syncCalendar(),
+          )
+        else ...[
+          // Section: Today
+          if (todayClasses.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.only(left: 4, bottom: 8),
+              child: Text(
+                'HÔM NAY',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                  color: Color(0xFF0284C7),
+                ),
               ),
             ),
-          ),
-          ...todayClasses.map(
-            (session) => ClassSessionCard(
-              session: session,
-              onJoinTap: ctrl.launchMeeting,
+            ...todayClasses.map(
+              (session) => ClassSessionCard(
+                session: session,
+                onJoinTap: ctrl.launchMeeting,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-        ],
+            const SizedBox(height: 12),
+          ],
 
-        // Section: Upcoming
-        if (upcomingClasses.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.only(left: 4, top: 4, bottom: 8),
-            child: Text(
-              '7 NGÀY TỚI',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
-                color: Color(0xFF64748B),
+          // Section: Upcoming
+          if (upcomingClasses.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 4, top: 4, bottom: 8),
+              child: Text(
+                '${state.filterDays} NGÀY TỚI',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                  color: Color(0xFF64748B),
+                ),
               ),
             ),
-          ),
-          ...upcomingClasses.map(
-            (session) => ClassSessionCard(
-              session: session,
-              onJoinTap: ctrl.launchMeeting,
+            ...upcomingClasses.map(
+              (session) => ClassSessionCard(
+                session: session,
+                onJoinTap: ctrl.launchMeeting,
+              ),
             ),
-          ),
+          ],
         ],
       ],
     );
