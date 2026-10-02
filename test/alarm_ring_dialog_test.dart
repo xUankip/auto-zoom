@@ -56,6 +56,7 @@ void main() {
       expect(
           find.text('Bắt đầu lúc 09:00. Nhấn để vào Zoom ngay.'), findsOneWidget);
       expect(find.text('Tham gia Zoom ngay'), findsOneWidget);
+      expect(find.text('ID: 123 456 789'), findsOneWidget);
       expect(find.text('Tắt chuông báo thức'), findsOneWidget);
     });
   });

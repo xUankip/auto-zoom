@@ -36,8 +36,12 @@ class NotificationScheduleItem {
 class NotificationReconciler {
   NotificationReconciler._();
 
+  /// iOS keeps at most 64 pending notifications per app; leave some headroom.
+  static const int maxScheduled = 60;
+
   /// Computes the desired list of upcoming notifications from the provided [classes].
-  /// Filters out any sessions whose scheduled reminder time is already in the past.
+  /// Skips sessions whose reminder time already passed (on Android the native
+  /// auto-join still opens Zoom at start time). Returns at most [maxScheduled] items, soonest first.
   static List<NotificationScheduleItem> buildDesiredSchedule({
     required List<ClassSession> classes,
     required int reminderMinutes,
@@ -50,28 +54,28 @@ class NotificationReconciler {
 
     for (final session in classes) {
       final scheduledTime = session.reminderTime(reminderMinutes);
+      if (!scheduledTime.isAfter(now)) continue;
 
-      // Only schedule if the reminder time is in the future
-      if (scheduledTime.isAfter(now)) {
-        final id = session.notificationId(reminderMinutes);
-        final title = '🔔 Sắp đến giờ học: ${session.title}';
-        final body =
-            'Bắt đầu lúc ${timeFormatter.format(session.startTime)}. Nhấn để tham gia Zoom ngay.';
+      final id = session.notificationId(reminderMinutes);
 
-        final payloadJson = jsonEncode(session.toNotificationPayload());
+      final title = '🔔 Sắp đến giờ học: ${session.title}';
+      final body =
+          'Bắt đầu lúc ${timeFormatter.format(session.startTime)}. Nhấn để tham gia Zoom ngay.';
 
-        items.add(
-          NotificationScheduleItem(
-            id: id,
-            title: title,
-            body: body,
-            scheduledTime: scheduledTime,
-            payloadJson: payloadJson,
-          ),
-        );
-      }
+      final payloadJson = jsonEncode(session.toNotificationPayload());
+
+      items.add(
+        NotificationScheduleItem(
+          id: id,
+          title: title,
+          body: body,
+          scheduledTime: scheduledTime,
+          payloadJson: payloadJson,
+        ),
+      );
     }
 
-    return items;
+    items.sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
+    return items.take(maxScheduled).toList();
   }
 }

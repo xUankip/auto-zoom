@@ -82,5 +82,47 @@ void main() {
 
       expect(items, isEmpty);
     });
+
+    ClassSession sessionAt(String id, DateTime start) => ClassSession(
+          id: id,
+          calendarId: 'cal_school',
+          title: 'Lớp $id',
+          startTime: start,
+          endTime: start.add(const Duration(hours: 1)),
+          zoom: const ZoomMeeting(meetingId: '111222333', passcode: 'pw'),
+        );
+
+    test('payload carries the passcode so a tap joins without retyping it', () {
+      final session = sessionAt('pw', DateTime(2026, 8, 18, 8, 0));
+
+      final items = NotificationReconciler.buildDesiredSchedule(
+        classes: [session],
+        reminderMinutes: 10,
+        currentTime: fixedNow,
+      );
+
+      final payload = jsonDecode(items.single.payloadJson) as Map<String, dynamic>;
+      expect(payload['passcode'], 'pw');
+    });
+
+    test('caps the schedule at the 60 soonest reminders', () {
+      // Built in reverse order to check sorting.
+      final sessions = [
+        for (var i = 100; i > 0; i--)
+          sessionAt('c$i', fixedNow.add(Duration(hours: i))),
+      ];
+
+      final items = NotificationReconciler.buildDesiredSchedule(
+        classes: sessions,
+        reminderMinutes: 10,
+        currentTime: fixedNow,
+      );
+
+      expect(items.length, NotificationReconciler.maxScheduled);
+      expect(items.first.scheduledTime,
+          fixedNow.add(const Duration(hours: 1, minutes: -10)));
+      expect(items.last.scheduledTime,
+          fixedNow.add(const Duration(hours: 60, minutes: -10)));
+    });
   });
 }

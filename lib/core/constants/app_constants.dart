@@ -3,8 +3,8 @@ class AppConstants {
   AppConstants._();
 
   /// Rolling window duration for querying calendar events and scheduling notifications.
-  /// poncho: Keeps memory footprint minimal while guaranteeing a full week of proactive reminders.
-  static const Duration notificationScheduleWindow = Duration(days: 7);
+  /// Independent of the dashboard filter so reminders keep firing for a month without opening the app.
+  static const Duration notificationScheduleWindow = Duration(days: 30);
 
   /// Default minutes before class to trigger local notification.
   static const int defaultReminderMinutes = 10;
@@ -14,13 +14,15 @@ class AppConstants {
   static const int defaultFilterDays = 7;
 
   /// Available reminder offset options in minutes.
-  static const List<int> reminderOptions = [5, 10, 15, 30];
+  static const List<int> reminderOptions = [0, 5, 10, 15, 30];
 
   /// Shared Preferences Keys
   static const String keySelectedCalendarIds = 'selected_calendar_ids';
   static const String keyReminderMinutes = 'reminder_minutes';
   static const String keyHasSeenOnboarding = 'has_seen_onboarding';
   static const String keyFilterDays = 'dashboard_filter_days';
+  static const String keyAutoJoin = 'auto_join';
+  static const String keyAutoJoinCancelledIds = 'auto_join_cancelled_ids';
 
   /// Notification Channel details for Android
   static const String notificationChannelId = 'autozoom_class_reminders';

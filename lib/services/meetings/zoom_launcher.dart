@@ -6,34 +6,17 @@ import 'meeting_launcher.dart';
 
 /// Concrete Zoom meeting launcher.
 /// Priority:
-/// 1. If [joinUrl] is present (from calendar event), launch it directly via Universal/App Link.
-/// 2. If only [meetingId] (+ optional [passcode]) is present, try [deepLinkUrl] then fallback to constructed HTTPS URL.
-/// ponytail: Direct launching preserves custom/region-specific vanity URLs without unnecessary transformation.
+/// 1. Native [deepLinkUrl] (`zoomus://zoom.us/join?...`) — opens the Zoom app directly,
+///    skipping the browser "Launch meeting" page.
+/// 2. HTTPS [computedUrl]: raw [joinUrl] from the event (Universal/App Link → appLaunched),
+///    or one constructed from [meetingId] (+ optional [passcode]) → webFallback.
+/// 3. Otherwise failed.
+/// ponytail: Raw joinUrl is launched as-is, preserving custom/region-specific vanity URLs.
 class ZoomLauncher implements MeetingLauncher {
   const ZoomLauncher();
 
   @override
   Future<LaunchResult> launch(ZoomMeeting meeting) async {
-    // Priority 1: Direct joinUrl from event
-    if (meeting.joinUrl != null && meeting.joinUrl!.trim().isNotEmpty) {
-      final rawUrl = meeting.joinUrl!.trim();
-      try {
-        final uri = Uri.parse(rawUrl);
-        final launched = await launchUrl(
-          uri,
-          mode: LaunchMode.externalApplication,
-        );
-        if (launched) {
-          debugPrint('[ZoomLauncher] Launched direct joinUrl: $rawUrl');
-          return LaunchResult.appLaunched(rawUrl);
-        }
-      } catch (e) {
-        debugPrint('[ZoomLauncher] Failed to launch joinUrl: $e');
-        return LaunchResult.failed('Không thể mở liên kết Zoom: $e');
-      }
-    }
-
-    // Priority 2: Constructed from Meeting ID (+ optional Passcode)
     final deepLink = meeting.deepLinkUrl;
     final httpsUrl = meeting.computedUrl;
 
@@ -41,7 +24,7 @@ class ZoomLauncher implements MeetingLauncher {
       return LaunchResult.failed('Không tìm thấy đường dẫn hoặc mã phòng Zoom.');
     }
 
-    // Try deep link scheme first
+    // Priority 1: Native Zoom scheme
     if (deepLink != null) {
       try {
         final deepUri = Uri.parse(deepLink);
@@ -60,20 +43,23 @@ class ZoomLauncher implements MeetingLauncher {
       }
     }
 
-    // Fallback to HTTPS
+    // Priority 2: HTTPS (raw joinUrl from event, or constructed from Meeting ID)
     if (httpsUrl != null) {
+      final isRawJoinUrl =
+          meeting.joinUrl != null && meeting.joinUrl!.trim().isNotEmpty;
       try {
-        final httpsUri = Uri.parse(httpsUrl);
         final launched = await launchUrl(
-          httpsUri,
+          Uri.parse(httpsUrl),
           mode: LaunchMode.externalApplication,
         );
         if (launched) {
-          debugPrint('[ZoomLauncher] Launched HTTPS fallback: $httpsUrl');
-          return LaunchResult.webFallback(httpsUrl);
+          debugPrint('[ZoomLauncher] Launched HTTPS URL: $httpsUrl');
+          return isRawJoinUrl
+              ? LaunchResult.appLaunched(httpsUrl)
+              : LaunchResult.webFallback(httpsUrl);
         }
       } catch (e) {
-        debugPrint('[ZoomLauncher] HTTPS fallback failed: $e');
+        debugPrint('[ZoomLauncher] HTTPS launch failed: $e');
         return LaunchResult.failed('Không thể mở liên kết Zoom: $e');
       }
     }

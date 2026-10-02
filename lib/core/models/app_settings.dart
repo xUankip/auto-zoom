@@ -6,23 +6,27 @@ class AppSettings {
   final Set<String> selectedCalendarIds;
   final int reminderMinutes;
   final bool hasPromptedCalendarSelection;
+  final bool autoJoin;
 
   const AppSettings({
     this.selectedCalendarIds = const {},
     this.reminderMinutes = AppConstants.defaultReminderMinutes,
     this.hasPromptedCalendarSelection = false,
+    this.autoJoin = true,
   });
 
   AppSettings copyWith({
     Set<String>? selectedCalendarIds,
     int? reminderMinutes,
     bool? hasPromptedCalendarSelection,
+    bool? autoJoin,
   }) {
     return AppSettings(
       selectedCalendarIds: selectedCalendarIds ?? this.selectedCalendarIds,
       reminderMinutes: reminderMinutes ?? this.reminderMinutes,
       hasPromptedCalendarSelection:
           hasPromptedCalendarSelection ?? this.hasPromptedCalendarSelection,
+      autoJoin: autoJoin ?? this.autoJoin,
     );
   }
 
@@ -30,6 +34,7 @@ class AppSettings {
         'selectedCalendarIds': selectedCalendarIds.toList(),
         'reminderMinutes': reminderMinutes,
         'hasPromptedCalendarSelection': hasPromptedCalendarSelection,
+        'autoJoin': autoJoin,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -42,5 +47,6 @@ class AppSettings {
             AppConstants.defaultReminderMinutes,
         hasPromptedCalendarSelection:
             json['hasPromptedCalendarSelection'] as bool? ?? false,
+        autoJoin: json['autoJoin'] as bool? ?? true,
       );
 }

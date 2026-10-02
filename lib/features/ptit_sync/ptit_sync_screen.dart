@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../services/calendar/calendar_service.dart';
+import '../home/home_controller.dart';
 import 'ptit_sync_controller.dart';
 
 /// Full-screen UI for PTIT timetable auto-sync.
@@ -73,8 +74,13 @@ class _PtitSyncScreenState extends ConsumerState<PtitSyncScreen> {
     await ctrl.startSync(
       targetCalendarId: _selectedCalendarId!,
       username: _showCredentialsForm ? _usernameCtrl.text.trim() : null,
-      password: _showCredentialsForm ? _passwordCtrl.text.trim() : null,
+      password: _showCredentialsForm ? _passwordCtrl.text : null,
     );
+
+    // New events have new IDs → reschedule home notifications/alarms now.
+    if (mounted && ref.read(ptitSyncControllerProvider).isSuccess) {
+      await ref.read(homeControllerProvider.notifier).syncCalendar();
+    }
   }
 
   @override
@@ -107,6 +113,7 @@ class _PtitSyncScreenState extends ConsumerState<PtitSyncScreen> {
           ),
         ),
         leading: IconButton(
+          tooltip: 'Quay lại',
           icon: Icon(
             Icons.arrow_back_ios_new_rounded,
             color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -156,6 +163,7 @@ class _PtitSyncScreenState extends ConsumerState<PtitSyncScreen> {
                         isDark: isDark,
                         obscureText: _obscurePassword,
                         suffixIcon: IconButton(
+                          tooltip: _obscurePassword ? 'Hiện mật khẩu' : 'Ẩn mật khẩu',
                           icon: Icon(
                             _obscurePassword
                                 ? Icons.visibility_off_outlined

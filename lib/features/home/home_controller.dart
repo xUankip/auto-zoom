@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/models/class_session.dart';
+import '../../services/autojoin/auto_join_service.dart';
 import '../../services/calendar/calendar_service.dart';
 import '../../services/calendar/device_calendar_service.dart';
 import '../../services/meetings/meeting_launcher.dart';
@@ -126,9 +127,24 @@ class HomeController extends StateNotifier<HomeState> {
     await syncCalendar();
   }
 
+  bool _resyncRequested = false;
+
   /// Full reconciliation and sync flow.
   /// Triggered on: App start, App resume foreground, or User pull-to-refresh.
+  /// Calls made while a sync is running (e.g. a setting changed) trigger one more run afterwards.
   Future<void> syncCalendar() async {
+    if (!mounted) return;
+    if (state.isLoading) {
+      _resyncRequested = true;
+      return;
+    }
+    do {
+      _resyncRequested = false;
+      await _sync();
+    } while (_resyncRequested && mounted);
+  }
+
+  Future<void> _sync() async {
     if (!mounted) return;
     state = state.copyWith(isLoading: true, errorMessage: null);
 
@@ -160,7 +176,8 @@ class HomeController extends StateNotifier<HomeState> {
 
       final now = DateTime.now();
       final queryStart = DateTime(now.year, now.month, now.day);
-      final queryEnd = queryStart.add(Duration(days: state.filterDays));
+      // Always schedule reminders for the full window; the filter only affects the list shown.
+      final queryEnd = queryStart.add(AppConstants.notificationScheduleWindow);
 
       final upcomingClasses = await calendarService.getUpcomingClasses(
         selectedCalendarIds: selectedIds,
@@ -173,14 +190,19 @@ class HomeController extends StateNotifier<HomeState> {
       await notificationService.reconcile(
         upcomingClasses: upcomingClasses,
         reminderMinutes: settings.reminderMinutes,
+        autoJoin: settings.autoJoin,
       );
       if (!mounted) return;
 
+      // Read filterDays now: the user may have switched the filter while syncing.
+      final displayEnd = queryStart.add(Duration(days: state.filterDays));
       state = state.copyWith(
         isLoading: false,
         hasCalendarPermission: true,
         availableCalendars: calendars,
-        classes: upcomingClasses,
+        classes: upcomingClasses
+            .where((c) => c.startTime.isBefore(displayEnd))
+            .toList(),
         lastSyncedAt: DateTime.now(),
       );
 
@@ -220,6 +242,8 @@ class HomeController extends StateNotifier<HomeState> {
 
   /// Launches a Zoom meeting.
   Future<LaunchResult> launchMeeting(ClassSession session) async {
+    // Joining now: don't let the native scheduler re-open Zoom at start time.
+    await const AutoJoinService().cancel(session.notificationId(0));
     return meetingLauncher.launch(session.zoom);
   }
 }

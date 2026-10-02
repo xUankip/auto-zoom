@@ -10,12 +10,10 @@ import '../../core/constants/app_constants.dart';
 import '../../core/models/class_session.dart';
 import '../../core/models/zoom_meeting.dart';
 import '../alarm/alarm_service.dart';
+import '../autojoin/auto_join_service.dart';
 import '../meetings/meeting_launcher.dart';
 import '../meetings/zoom_launcher.dart';
 import 'notification_reconciler.dart';
-
-/// Callback type for handling meeting launches triggered from notifications.
-typedef OnNotificationMeetingLaunch = void Function(ZoomMeeting meeting);
 
 /// Manages local notification scheduling, interactive actions, and Zoom meeting auto-launching.
 class NotificationService {
@@ -24,7 +22,43 @@ class NotificationService {
   final AlarmService _alarmService;
   bool _isInitialized = false;
 
-  OnNotificationMeetingLaunch? onMeetingLaunch;
+  /// Static: the plugin is a singleton, so a new service instance would replay the same launch.
+  static bool _launchResponseHandled = false;
+
+  /// Silent on Android: the `alarm` package already rings, even when the app is killed.
+  /// iOS keeps the sound because the alarm package can't ring once the app is killed.
+  static const _notificationDetails = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'autozoom_join_channel',
+      'Nhắc vào lớp Zoom',
+      channelDescription: 'Thông báo nhắc vào lớp học Zoom (chuông báo thức phát riêng)',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: false,
+      actions: [
+        AndroidNotificationAction(
+          AppConstants.actionJoin,
+          'Tham gia ngay',
+          showsUserInterface: true,
+        ),
+        AndroidNotificationAction(
+          AppConstants.actionDismiss,
+          'Bỏ qua',
+          cancelNotification: true,
+        ),
+      ],
+    ),
+    iOS: DarwinNotificationDetails(
+      categoryIdentifier: 'CLASS_REMINDER_CATEGORY',
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      presentBanner: true,
+      presentList: true,
+      sound: 'alarm.caf',
+      interruptionLevel: InterruptionLevel.timeSensitive,
+    ),
+  );
 
   NotificationService({
     FlutterLocalNotificationsPlugin? notificationsPlugin,
@@ -108,6 +142,17 @@ class NotificationService {
 
     _isInitialized = true;
     debugPrint('[NotificationService] Initialized successfully.');
+
+    // Cold start: the app was launched by tapping a notification / its action.
+    final launchDetails =
+        await _notificationsPlugin.getNotificationAppLaunchDetails();
+    final launchResponse = launchDetails?.notificationResponse;
+    if (!_launchResponseHandled &&
+        (launchDetails?.didNotificationLaunchApp ?? false) &&
+        launchResponse != null) {
+      _launchResponseHandled = true;
+      _handleNotificationResponse(launchResponse);
+    }
   }
 
   /// Request permissions on Android 13+ / iOS.
@@ -138,25 +183,7 @@ class NotificationService {
     return true;
   }
 
-  static const _alarmChannel = MethodChannel('com.autozoom/alarm');
-
-  /// Plays alarm sound directly through speaker bypassing hardware silent switch
-  Future<void> playDirectAlarm() async {
-    try {
-      await _alarmChannel.invokeMethod('playAlarm');
-    } catch (e) {
-      debugPrint('[NotificationService] playDirectAlarm error: $e');
-    }
-  }
-
-  /// Stops direct alarm sound
-  Future<void> stopDirectAlarm() async {
-    try {
-      await _alarmChannel.invokeMethod('stopAlarm');
-    } catch (e) {
-      debugPrint('[NotificationService] stopDirectAlarm error: $e');
-    }
-  }  /// Triggers an immediate test notification with sound and banner for user verification.
+  /// Triggers an immediate test notification with sound and banner for user verification.
   Future<void> showTestNotification() async {
     if (!_isInitialized) await initialize();
     await requestPermissions();
@@ -164,39 +191,11 @@ class NotificationService {
     // Trigger test alarm bypassing hardware Silent switch
     await _alarmService.triggerTestAlarm();
 
-    const androidDetails = AndroidNotificationDetails(
-      'autozoom_alarm_channel',
-      'Chuông báo nhắc giờ học Zoom',
-      channelDescription: 'Phát chuông báo thức khi sắp đến giờ vào lớp học Zoom',
-      importance: Importance.max,
-      priority: Priority.high,
-      sound: RawResourceAndroidNotificationSound('alarm'),
-      playSound: true,
-      enableVibration: true,
-      fullScreenIntent: true,
-    );
-
-    const darwinDetails = DarwinNotificationDetails(
-      categoryIdentifier: 'CLASS_REMINDER_CATEGORY',
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      presentBanner: true,
-      presentList: true,
-      sound: 'alarm.caf',
-      interruptionLevel: InterruptionLevel.timeSensitive,
-    );
-
-    const platformDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: darwinDetails,
-    );
-
     await _notificationsPlugin.show(
       999999,
       '🔔 Kiểm tra thông báo AutoZoom',
       'Thông báo và âm thanh chuông báo thức đã sẵn sàng!',
-      platformDetails,
+      _notificationDetails,
     );
   }
 
@@ -204,6 +203,7 @@ class NotificationService {
   Future<void> reconcile({
     required List<ClassSession> upcomingClasses,
     required int reminderMinutes,
+    required bool autoJoin,
   }) async {
     if (!_isInitialized) await initialize();
 
@@ -212,7 +212,6 @@ class NotificationService {
         classes: upcomingClasses,
         reminderMinutes: reminderMinutes,
       );
-
       final desiredIds = desiredItems.map((e) => e.id).toSet();
 
       // 1. Get currently scheduled notifications from OS
@@ -228,47 +227,7 @@ class NotificationService {
         }
       }
 
-      // 3. Schedule all desired notifications with alarm sound
-      const androidDetails = AndroidNotificationDetails(
-        'autozoom_alarm_channel',
-        'Chuông báo nhắc giờ học Zoom',
-        channelDescription: 'Phát chuông báo thức khi sắp đến giờ vào lớp học Zoom',
-        importance: Importance.max,
-        priority: Priority.high,
-        sound: RawResourceAndroidNotificationSound('alarm'),
-        playSound: true,
-        enableVibration: true,
-        fullScreenIntent: true,
-        actions: [
-          AndroidNotificationAction(
-            AppConstants.actionJoin,
-            'Tham gia ngay',
-            showsUserInterface: true,
-          ),
-          AndroidNotificationAction(
-            AppConstants.actionDismiss,
-            'Bỏ qua',
-            cancelNotification: true,
-          ),
-        ],
-      );
-
-      const darwinDetails = DarwinNotificationDetails(
-        categoryIdentifier: 'CLASS_REMINDER_CATEGORY',
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        presentBanner: true,
-        presentList: true,
-        sound: 'alarm.caf',
-        interruptionLevel: InterruptionLevel.timeSensitive,
-      );
-
-      const platformDetails = NotificationDetails(
-        android: androidDetails,
-        iOS: darwinDetails,
-      );
-
+      // 3. Schedule all desired notifications
       for (final item in desiredItems) {
         // Convert to TZDateTime
         final tzScheduledTime = tz.TZDateTime.from(
@@ -282,7 +241,7 @@ class NotificationService {
             item.title,
             item.body,
             tzScheduledTime,
-            platformDetails,
+            _notificationDetails,
             payload: item.payloadJson,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
@@ -295,7 +254,7 @@ class NotificationService {
               item.title,
               item.body,
               tzScheduledTime,
-              platformDetails,
+              _notificationDetails,
               payload: item.payloadJson,
               uiLocalNotificationDateInterpretation:
                   UILocalNotificationDateInterpretation.absoluteTime,
@@ -315,6 +274,9 @@ class NotificationService {
     } catch (e) {
       debugPrint('[NotificationService] Reconcile error: $e');
     }
+
+    // 5. Native Android auto-join at class start (no-op elsewhere)
+    await const AutoJoinService().sync(autoJoin ? upcomingClasses : const []);
   }
 
   /// Internal handler when user interacts with a notification.
@@ -332,26 +294,21 @@ class NotificationService {
 
     if (actionId == AppConstants.actionDismiss) {
       debugPrint('[NotificationService] User dismissed notification.');
+      if (notificationId != null) {
+        const AutoJoinService().cancel(notificationId);
+      }
       return;
     }
 
     if (payload != null && payload.isNotEmpty) {
       try {
         final data = jsonDecode(payload) as Map<String, dynamic>;
-        final joinUrl = data['joinUrl'] as String?;
-        final meetingId = data['meetingId'] as String?;
-
-        if (joinUrl != null || meetingId != null) {
-          final meeting = ZoomMeeting(
-            joinUrl: joinUrl,
-            meetingId: meetingId,
-          );
-
-          if (onMeetingLaunch != null) {
-            onMeetingLaunch!(meeting);
-          } else {
-            _meetingLauncher.launch(meeting);
+        if (data['joinUrl'] != null || data['meetingId'] != null) {
+          // Joining now: don't let the native scheduler re-open Zoom at start time.
+          if (notificationId != null) {
+            const AutoJoinService().cancel(notificationId);
           }
+          _meetingLauncher.launch(ZoomMeeting.fromJson(data));
         }
       } catch (e) {
         debugPrint('[NotificationService] Error parsing notification payload: $e');
@@ -360,29 +317,18 @@ class NotificationService {
   }
 }
 
-/// Top-level background notification tap handler required by flutter_local_notifications.
+/// Top-level background notification response handler required by flutter_local_notifications.
+/// Runs in a background isolate where launching another app doesn't work, so it only
+/// stops the alarm (taps that open the app go through [NotificationService] instead).
 @pragma('vm:entry-point')
 void notificationTapBackgroundHandler(NotificationResponse response) {
-  // Stop ringing alarm
-  if (response.id != null) {
-    AlarmService().stopAlarm(response.id!);
-  } else {
+  final id = response.id;
+  if (id == null) {
     AlarmService().stopAll();
+    return;
   }
-
-  final payload = response.payload;
-  if (payload != null && payload.isNotEmpty) {
-    try {
-      final data = jsonDecode(payload) as Map<String, dynamic>;
-      final joinUrl = data['joinUrl'] as String?;
-      final meetingId = data['meetingId'] as String?;
-      if (joinUrl != null || meetingId != null) {
-        const ZoomLauncher().launch(
-          ZoomMeeting(joinUrl: joinUrl, meetingId: meetingId),
-        );
-      }
-    } catch (e) {
-      debugPrint('[NotificationService] Background tap error: $e');
-    }
+  AlarmService().stopAlarm(id);
+  if (response.actionId == AppConstants.actionDismiss) {
+    const AutoJoinService().cancel(id);
   }
 }

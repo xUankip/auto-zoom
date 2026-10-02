@@ -1,3 +1,4 @@
+import 'package:autozoom/core/models/zoom_meeting.dart';
 import 'package:autozoom/core/parser/zoom_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,6 +33,56 @@ void main() {
       expect(result!.meetingId, '123456789');
       expect(result.passcode, isNull);
       expect(result.computedUrl, 'https://zoom.us/j/123456789');
+    });
+
+    test('parses passcode from text when Zoom URL has no pwd', () {
+      final result = ZoomParser.parse(
+        location: 'https://zoom.us/j/123456789',
+        description: 'Passcode: abc123.',
+      );
+      expect(result, isNotNull);
+      expect(result!.meetingId, '123456789');
+      expect(result.passcode, 'abc123');
+      expect(
+        result.deepLinkUrl,
+        'zoomus://zoom.us/join?confno=123456789&pwd=abc123',
+      );
+    });
+
+    test('keeps URL pwd over passcode in text', () {
+      final result = ZoomParser.parse(
+        description:
+            'https://zoom.us/j/123456789?pwd=urlpwd\nPasscode: textpass',
+      );
+      expect(result, isNotNull);
+      expect(result!.passcode, 'urlpwd');
+    });
+
+    test('does not read "Password is..." as a passcode', () {
+      final result = ZoomParser.parse(
+        description: 'https://zoom.us/j/123456789\nPassword is sent by email',
+      );
+      expect(result, isNotNull);
+      expect(result!.passcode, isNull);
+    });
+
+    test('builds zoomus://zoom.us deep link', () {
+      expect(
+        const ZoomMeeting(meetingId: '123 456 789').deepLinkUrl,
+        'zoomus://zoom.us/join?confno=123456789',
+      );
+      expect(
+        const ZoomMeeting(joinUrl: 'https://us02web.zoom.us/j/98765432101?pwd=xyz')
+            .deepLinkUrl,
+        'zoomus://zoom.us/join?confno=98765432101&pwd=xyz',
+      );
+      expect(
+        const ZoomMeeting(
+          joinUrl: 'https://zoom.us/j/98765432101',
+          passcode: 'abc123',
+        ).deepLinkUrl,
+        'zoomus://zoom.us/join?confno=98765432101&pwd=abc123',
+      );
     });
 
     test('parses English Meeting ID and Passcode with spaces', () {

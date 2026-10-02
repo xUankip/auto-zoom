@@ -29,12 +29,14 @@ class SettingsController extends StateNotifier<AppSettings> {
             AppConstants.defaultReminderMinutes;
     final hasPrompted =
         _prefs.getBool(AppConstants.keyHasSeenOnboarding) ?? false;
+    final autoJoin = _prefs.getBool(AppConstants.keyAutoJoin) ?? true;
 
     if (!mounted) return;
     state = AppSettings(
       selectedCalendarIds: savedCalendarIds,
       reminderMinutes: savedReminder,
       hasPromptedCalendarSelection: hasPrompted,
+      autoJoin: autoJoin,
     );
   }
 
@@ -80,6 +82,13 @@ class SettingsController extends StateNotifier<AppSettings> {
       state = state.copyWith(reminderMinutes: minutes);
     }
     await _prefs.setInt(AppConstants.keyReminderMinutes, minutes);
+  }
+
+  Future<void> setAutoJoin(bool value) async {
+    if (mounted) {
+      state = state.copyWith(autoJoin: value);
+    }
+    await _prefs.setBool(AppConstants.keyAutoJoin, value);
   }
 
   Future<void> markOnboardingComplete() async {

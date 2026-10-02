@@ -56,6 +56,7 @@ class ClassSession {
         'endTime': endTime.toIso8601String(),
         'joinUrl': zoom.computedUrl,
         'meetingId': zoom.meetingId,
+        'passcode': zoom.passcode,
         'deepLinkUrl': zoom.deepLinkUrl,
       };
 

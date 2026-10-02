@@ -26,8 +26,9 @@ class ZoomParser {
   );
 
   // 4. Passcode / Password patterns in English & Vietnamese
+  // (?![a-zA-Z]) stops "Pass" matching inside "Password is..." and capturing "word".
   static final RegExp _passcodeRegex = RegExp(
-    r'(?:Passcode|Password|Pass|Mật\s*khẩu|Mã\s*bảo\s*mật|Mật\s*mã|Mã\s*vào\s*phòng|pwd)\s*[:：\-]?\s*([^\s\n\r,;]{3,32})',
+    r'(?:Passcode|Password|Pass|Mật\s*khẩu|Mã\s*bảo\s*mật|Mật\s*mã|Mã\s*vào\s*phòng|pwd)(?![a-zA-Z])\s*[:：\-]?\s*([^\s\n\r,;]{3,32})',
     caseSensitive: false,
   );
 
@@ -54,9 +55,11 @@ class ZoomParser {
       final rawUrl = urlMatch.group(0)!;
       final candidateId = urlMatch.group(1)!;
 
-      // Extract pwd parameter if present
+      // Extract pwd parameter if present, else look for a passcode in the
+      // surrounding text (URL removed so its own `pwd` can't match).
       final pwdMatch = _pwdParamRegex.firstMatch(rawUrl);
-      final passcode = pwdMatch?.group(1);
+      final passcode = pwdMatch?.group(1) ??
+          _findPasscode(rawText.replaceFirst(rawUrl, ''));
 
       // Sanitize candidate ID (if numeric)
       final digitsId = candidateId.replaceAll(RegExp(r'\s+|-'), '');
@@ -78,15 +81,7 @@ class ZoomParser {
       final digitsOnly = rawId.replaceAll(RegExp(r'\s+|-'), '');
       if (isValidMeetingId(digitsOnly)) {
         // Look for passcode anywhere in the text
-        String? passcode;
-        final passMatch = _passcodeRegex.firstMatch(rawText);
-        if (passMatch != null) {
-          final rawPass = passMatch.group(1)?.trim();
-          if (rawPass != null && rawPass.isNotEmpty) {
-            // Remove any trailing punct
-            passcode = rawPass.replaceAll(RegExp(r'[.,;!)]+$'), '');
-          }
-        }
+        final passcode = _findPasscode(rawText);
 
         return ZoomMeeting(
           meetingId: digitsOnly,
@@ -99,5 +94,14 @@ class ZoomParser {
     }
 
     return null;
+  }
+
+  /// Finds the first labelled passcode in [text], with trailing punctuation stripped.
+  static String? _findPasscode(String text) {
+    final rawPass = _passcodeRegex.firstMatch(text)?.group(1)?.trim();
+    if (rawPass == null || rawPass.isEmpty) return null;
+    // Remove any trailing punct
+    final passcode = rawPass.replaceAll(RegExp(r'[.,;!)]+$'), '');
+    return passcode.isEmpty ? null : passcode;
   }
 }

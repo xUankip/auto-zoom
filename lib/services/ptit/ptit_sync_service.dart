@@ -85,12 +85,15 @@ class PtitSyncService {
 
     // Step 4: Delete stale events from previous syncs in this calendar
     // (covers the semester date range so wrong-date events are cleaned up)
-    if (allClasses.isNotEmpty) {
+    final dates = allClasses.map((c) => c.date).whereType<DateTime>().toList();
+    if (dates.isNotEmpty) {
+      final from = dates.reduce((a, b) => a.isBefore(b) ? a : b);
+      final to = dates.reduce((a, b) => a.isAfter(b) ? a : b);
       onProgress('Đang xóa lịch cũ trước khi ghi lại…', 0.55);
       await _deleteSemesterEvents(
         calendarId: targetCalendarId,
-        from: allClasses.first.date!,
-        to: allClasses.last.date!.add(const Duration(days: 1)),
+        from: from,
+        to: to.add(const Duration(days: 1)),
       );
     }
 
@@ -110,7 +113,19 @@ class PtitSyncService {
     return written;
   }
 
-  /// Deletes all events in [calendarId] between [from] and [to].
+  /// True if [description] belongs to an event written by [PtitCalendarWriter].
+  /// Legacy events (pre-marker) are recognised by their description layout.
+  static bool isPtitEvent(String? description) {
+    if (description == null) return false;
+    if (description.contains(PtitCalendarWriter.marker)) return true;
+    return description.startsWith('Mã môn:') &&
+        description
+            .split('\n')
+            .any((line) => line.startsWith('Tiết ') && line.contains('→'));
+  }
+
+  /// Deletes events written by this app in [calendarId] between [from] and [to].
+  /// User's own events in the same calendar are left untouched.
   Future<void> _deleteSemesterEvents({
     required String calendarId,
     required DateTime from,
@@ -122,7 +137,7 @@ class PtitSyncService {
       if (!result.isSuccess || result.data == null) return;
 
       for (final event in result.data!) {
-        if (event.eventId != null) {
+        if (event.eventId != null && isPtitEvent(event.description)) {
           await _calendarPlugin.deleteEvent(calendarId, event.eventId!);
           debugPrint('[PtitSyncService] Deleted old event: ${event.title}');
         }

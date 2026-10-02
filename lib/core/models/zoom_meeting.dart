@@ -26,28 +26,29 @@ class ZoomMeeting {
     return null;
   }
 
-  /// Computed native Zoom deep-link URL (`zoomus://`).
+  /// Computed native Zoom deep-link URL (`zoomus://zoom.us/join?confno=...&pwd=...`).
   /// Used to attempt direct entry into native Zoom client.
   String? get deepLinkUrl {
     if (meetingId != null && meetingId!.trim().isNotEmpty) {
       final cleanId = meetingId!.replaceAll(RegExp(r'\s+|-'), '');
       if (passcode != null && passcode!.trim().isNotEmpty) {
-        return 'zoomus://join?confno=$cleanId&pwd=${Uri.encodeComponent(passcode!.trim())}';
+        return 'zoomus://zoom.us/join?confno=$cleanId&pwd=${Uri.encodeComponent(passcode!.trim())}';
       }
-      return 'zoomus://join?confno=$cleanId';
+      return 'zoomus://zoom.us/join?confno=$cleanId';
     }
 
-    // Fallback: If only joinUrl exists, attempt to extract confno & pwd or convert scheme
+    // Fallback: If only joinUrl exists, extract confno & pwd (URL pwd first, then passcode field)
     if (joinUrl != null && joinUrl!.isNotEmpty) {
-      final uri = Uri.tryParse(joinUrl!);
+      final uri = Uri.tryParse(joinUrl!.trim());
       if (uri != null && uri.pathSegments.isNotEmpty) {
         final confno = uri.pathSegments.last;
-        final pwd = uri.queryParameters['pwd'];
+        final urlPwd = uri.queryParameters['pwd'];
+        final pwd = urlPwd != null && urlPwd.isNotEmpty ? urlPwd : passcode?.trim();
         if (RegExp(r'^\d+$').hasMatch(confno)) {
           if (pwd != null && pwd.isNotEmpty) {
-            return 'zoomus://join?confno=$confno&pwd=${Uri.encodeComponent(pwd)}';
+            return 'zoomus://zoom.us/join?confno=$confno&pwd=${Uri.encodeComponent(pwd)}';
           }
-          return 'zoomus://join?confno=$confno';
+          return 'zoomus://zoom.us/join?confno=$confno';
         }
       }
     }

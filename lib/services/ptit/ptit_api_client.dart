@@ -184,7 +184,7 @@ class PtitApiClient {
       return result;
     } catch (e) {
       debugPrint('[PtitApiClient] Parse error: $e');
-      return [];
+      throw PtitApiException('Không đọc được dữ liệu TKB: $e');
     }
   }
 }

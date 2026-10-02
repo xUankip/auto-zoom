@@ -12,6 +12,9 @@ import 'ptit_models.dart';
 /// timezone suffix. We extract the date components and combine with period times
 /// using Asia/Ho_Chi_Minh so the event appears at the correct local time in iOS/Android Calendar.
 class PtitCalendarWriter {
+  /// Appended to every event description we write, so cleanup only touches our events.
+  static const marker = '#autozoom-ptit';
+
   final DeviceCalendarPlugin _plugin;
 
   PtitCalendarWriter({DeviceCalendarPlugin? plugin})
@@ -125,6 +128,7 @@ class PtitCalendarWriter {
     if (cls.linkHocOnline != null) {
       parts.add(cls.linkHocOnline!);
     }
+    parts.add(marker);
     return parts.join('\n');
   }
 }

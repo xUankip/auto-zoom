@@ -14,6 +14,8 @@ class AlarmService {
   factory AlarmService() => _instance;
   AlarmService._internal();
 
+  static const int testAlarmId = 999998;
+
   bool _isInitialized = false;
   StreamSubscription<AlarmSet>? _ringSubscription;
   OnAlarmRingCallback? onAlarmRing;
@@ -98,6 +100,20 @@ class AlarmService {
     }
   }
 
+  /// Alarms ringing right now (e.g. one that started before the UI listened, on cold start).
+  Future<List<AlarmSettings>> getRingingAlarms() async {
+    try {
+      final ringing = <AlarmSettings>[];
+      for (final alarm in await Alarm.getAlarms()) {
+        if (await Alarm.isRinging(alarm.id)) ringing.add(alarm);
+      }
+      return ringing;
+    } catch (e) {
+      debugPrint('[AlarmService] getRingingAlarms error: $e');
+      return const [];
+    }
+  }
+
   /// Reconciles currently registered alarms with the desired upcoming class schedule.
   Future<void> reconcileAlarms({
     required List<NotificationScheduleItem> desiredItems,
@@ -148,7 +164,7 @@ class AlarmService {
 
     final testTime = DateTime.now().add(const Duration(seconds: 1));
     await scheduleAlarm(
-      id: 999998,
+      id: testAlarmId,
       dateTime: testTime,
       title: '🔔 Thử nghiệm chuông báo thức AutoZoom',
       body: 'Chuông báo thức chạy nền xuyên qua nút gạt Im lặng (Silent Switch)!',
